@@ -89,7 +89,7 @@ def svm_loss_vectorized(W, X, y, reg):
   in_loss = loss_matrix > 0 # (N,C)
   loss = np.sum(loss_matrix * in_loss)
   loss /= num_train
-  loss += reg * np.sum(W*W)
+  loss += reg * np.sum(W**2)
 
   #############################################################################
   #                             END OF YOUR CODE                              #
