@@ -103,7 +103,7 @@ class CaptioningRNN(object):
         mask = (captions_out != self._null)
 
         # Weight and bias for the affine transform from image features to initial
-        # hidden state
+        # hidden state (D, H)
         W_proj, b_proj = self.params['W_proj'], self.params['b_proj']
 
         # Word embedding matrix
@@ -137,7 +137,23 @@ class CaptioningRNN(object):
         # defined above to store loss and gradients; grads[k] should give the      #
         # gradients for self.params[k].                                            #
         ############################################################################
-        pass
+        h0 = features.dot(W_proj) + b_proj
+        wd, wdeb_cache = word_embedding_forward(captions_in, W_embed)
+        if self.cell_type == 'rnn':
+            h, cache = rnn_forward(wd, h0, Wx, Wh, b)
+        else:
+            h, cache = lstm_forward(wd, h0, Wx, Wh, b)
+        out, tpaf_cache = temporal_affine_forward(h, W_vocab, b_vocab)
+        loss, dL = temporal_softmax_loss(out, captions_out, mask)
+
+        dL, grads['W_vocab'], grads['b_vocab'] = temporal_affine_backward(dL, tpaf_cache)
+        if self.cell_type == 'rnn':
+            dx, dh0, grads['Wx'], grads['Wh'], grads['b'] = rnn_backward(dL, cache)
+        else:
+            dx, dh0, grads['Wx'], grads['Wh'], grads['b'] = lstm_backward(dL, cache)
+        grads['W_embed'] = word_embedding_backward(dx, wdeb_cache)
+        grads['b_proj'] = np.sum(dh0, axis=0)
+        grads['W_proj'] = features.T.dot(dh0)
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -199,7 +215,24 @@ class CaptioningRNN(object):
         # functions; you'll need to call rnn_step_forward or lstm_step_forward in #
         # a loop.                                                                 #
         ###########################################################################
-        pass
+        h = features.dot(W_proj) + b_proj #(N, H)
+        prev_word = np.array([self._start] * N) #(N,)
+        prev_c = np.zeros(h.shape)
+        for i in range(max_length):
+            # Embed the prev word
+            x, _ = word_embedding_forward(prev_word, W_embed) # (N, 1, D)
+            # Step
+            if self.cell_type == 'rnn':
+                h, _ = rnn_step_forward(x, h, Wx, Wh, b) #(N, H)
+            else: # (x, prev_h, prev_c, Wx, Wh, b)
+                h, prev_c, _ = lstm_step_forward(x, h, prev_c, Wx, Wh, b) #(N, H)
+            # Affine
+            out, _ = temporal_affine_forward(np.expand_dims(h, axis=1), 
+                                W_vocab, b_vocab) #(N,1,M)
+            # Select
+            prev_word = np.argmax(np.squeeze(out), axis=1)
+            captions[:, i] = np.squeeze(prev_word)
+            # Update
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
